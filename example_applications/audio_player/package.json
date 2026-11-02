@@ -1,0 +1,38 @@
+{
+	"name": "audio_player_example",
+	"version": "1.0.0",
+	"description": "Example standalone audio player — two pict-section-audio instances (one with cover art, one with a precomputed waveform) with the play / seek / volume / rate control bar",
+	"main": "AudioPlayer-Example-Application.js",
+	"scripts": {
+		"start": "node AudioPlayer-Example-Application.js",
+		"build": "npx quack build && npx quack copy"
+	},
+	"author": "steven",
+	"license": "MIT",
+	"copyFilesSettings": {
+		"whenFileExists": "overwrite"
+	},
+	"copyFiles": [
+		{
+			"from": "./html/*",
+			"to": "./dist/"
+		},
+		{
+			"from": "../../node_modules/pict/dist/*",
+			"to": "./dist/"
+		}
+	],
+	"dependencies": {
+		"pict": "^1.0.348",
+		"pict-application": "^1.0.19",
+		"pict-view": "^1.0.66"
+	},
+	"retold": {
+		"ExampleApplication": {
+			"Stage": true,
+			"Title": "Audio Player",
+			"Summary": "Two standalone pict-section-audio instances — one with cover art, one with a precomputed click-to-seek waveform — each with the play / seek / time / volume / rate control bar.",
+			"Complexity": "Basic"
+		}
+	}
+}

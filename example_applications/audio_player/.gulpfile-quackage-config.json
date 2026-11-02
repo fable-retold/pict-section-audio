@@ -1,0 +1,8 @@
+{
+    "EntrypointInputSourceFile": "/Users/steven/Code/retold/modules/pict/pict-section-audio/example_applications/audio_player/AudioPlayer-Example-Application.js",
+    "LibraryObjectName": "AudioPlayerExample",
+    "LibraryOutputFolder": "/Users/steven/Code/retold/modules/pict/pict-section-audio/example_applications/audio_player/dist/",
+    "LibraryUniminifiedFileName": "audio_player_example.compatible.js",
+    "LibraryMinifiedFileName": "audio_player_example.compatible.min.js",
+    "BrowserifyIgnore": []
+}
