@@ -55,6 +55,8 @@ class PictSectionAudio extends libPictViewClass
 		this._title = this.options.Title || '';
 		this._subtitle = this.options.Subtitle || '';
 		this._peaks = Array.isArray(this.options.Peaks) ? this.options.Peaks.slice() : null;
+		this._computePeaks = (this.options.ComputePeaks !== false);   // decode client-side for a waveform when no Peaks supplied
+		this._peaksURL = null;                                        // the URL _peaks were last computed for (recompute on change)
 		this._downloadURL = this.options.DownloadURL || '';
 		this._downloadName = this.options.DownloadName || '';
 
@@ -139,7 +141,13 @@ class PictSectionAudio extends libPictViewClass
 				+ '</div>';
 		}
 
-		const tmpWave = this._peaks ? ('<canvas class="psa-wave" id="' + tmpBase + '-Wave"></canvas>') : '';
+		// The waveform canvas is present when peaks exist OR when we will compute them client-side. It starts hidden
+		// when it has no peaks yet (a display:none canvas has no measurable width) and _renderWaveform reveals it once
+		// peaks are ready; if computation fails it simply stays hidden.
+		const tmpHasPeaks = !!(this._peaks && this._peaks.length);
+		const tmpWave = (tmpHasPeaks || this._computePeaks)
+			? ('<canvas class="psa-wave" id="' + tmpBase + '-Wave"' + (tmpHasPeaks ? '' : ' style="display:none"') + '></canvas>')
+			: '';
 
 		let tmpControls = '';
 		if (this.options.ShowToolbar)
@@ -279,6 +287,7 @@ class PictSectionAudio extends libPictViewClass
 		try { if (typeof this._audioElement.load === 'function') { this._audioElement.load(); } }
 		catch (pError) { /* headless / unsupported */ }
 
+		this._maybeComputePeaks(pURL);   // client-side waveform when no Peaks were supplied (best-effort, async)
 		this._refreshControls();
 	}
 
@@ -469,6 +478,102 @@ class PictSectionAudio extends libPictViewClass
 	// -----------------------------------------------------------------------------------------------------------
 
 	/**
+	 * When no precomputed Peaks were supplied, decode the track in the browser (Web Audio) and draw a waveform from
+	 * it. Best-effort and non-blocking: a fetch/HTTP failure, an oversized file, a missing AudioContext, or a codec
+	 * the browser's decoder rejects all leave the slider-only chrome with the canvas hidden -- playback is never
+	 * affected. Runs at most once per URL (setAudio clears _peaksURL so each new track recomputes). Credentials are
+	 * included so an owner-scoped endpoint (a cookie-authed byte route) serves the bytes.
+	 */
+	_maybeComputePeaks(pURL)
+	{
+		if (!this._computePeaks) { return; }
+		if (this._peaks && this._peaks.length) { return; }             // a host-supplied waveform wins
+		if (!pURL || (this._peaksURL === pURL)) { return; }            // nothing to do / already handled this URL
+		if ((typeof window === 'undefined') || (typeof window.fetch !== 'function')) { return; }
+		const tmpAudioContextClass = window.AudioContext || window.webkitAudioContext;
+		if (!tmpAudioContextClass) { return; }                         // no Web Audio (headless / unsupported)
+
+		this._peaksURL = pURL;
+		const tmpSelf = this;
+		const tmpBuckets = parseInt(this.options.PeakBuckets, 10) || 400;
+		const tmpMaxBytes = parseInt(this.options.MaxPeaksBytes, 10) || 48000000;
+
+		window.fetch(pURL, { credentials: 'include' })
+			.then(function (pResponse)
+			{
+				if (!pResponse || !pResponse.ok) { throw new Error('fetch ' + (pResponse ? pResponse.status : 'failed')); }
+				const tmpLength = parseInt(pResponse.headers && pResponse.headers.get('content-length'), 10);
+				if (isFinite(tmpLength) && (tmpLength > tmpMaxBytes)) { throw new Error('too large (' + tmpLength + ' bytes)'); }
+				return pResponse.arrayBuffer();
+			})
+			.then(function (pArrayBuffer)
+			{
+				if (pArrayBuffer.byteLength > tmpMaxBytes) { throw new Error('too large'); }
+				const tmpContext = new tmpAudioContextClass();
+				// decodeAudioData has a promise form (modern) and a callback form (older WebKit); support both.
+				return new Promise(function (fResolve, fReject)
+				{
+					let tmpSettled = false;
+					const fOk = function (pBuffer) { if (!tmpSettled) { tmpSettled = true; fResolve({ Context: tmpContext, Buffer: pBuffer }); } };
+					const fErr = function (pErr) { if (!tmpSettled) { tmpSettled = true; try { tmpContext.close(); } catch (pE) { /* ignore */ } fReject(pErr || new Error('decode failed')); } };
+					let tmpReturn;
+					try { tmpReturn = tmpContext.decodeAudioData(pArrayBuffer, fOk, fErr); }
+					catch (pDecodeError) { fErr(pDecodeError); return; }
+					if (tmpReturn && (typeof tmpReturn.then === 'function')) { tmpReturn.then(fOk, fErr); }
+				});
+			})
+			.then(function (pResult)
+			{
+				const tmpPeaks = tmpSelf._peaksFromBuffer(pResult.Buffer, tmpBuckets);
+				try { pResult.Context.close(); } catch (pError) { /* ignore */ }
+				if (tmpPeaks && tmpPeaks.length && (tmpSelf._peaksURL === pURL))   // still the current track?
+				{
+					tmpSelf._peaks = tmpPeaks;
+					tmpSelf._renderWaveform();   // reveals the canvas + paints
+				}
+			})
+			.catch(function (pError)
+			{
+				tmpSelf.log.info('pict-section-audio: client-side waveform unavailable (' + ((pError && pError.message) || pError) + ').');
+			});
+	}
+
+	/** Downsample a decoded AudioBuffer to an array of pBuckets amplitudes in 0..1 (max |sample| per bucket, normalized). */
+	_peaksFromBuffer(pAudioBuffer, pBuckets)
+	{
+		if (!pAudioBuffer || !pAudioBuffer.length) { return null; }
+		const tmpBuckets = Math.max(1, Math.min(2000, parseInt(pBuckets, 10) || 400));
+		const tmpChannelCount = pAudioBuffer.numberOfChannels || 1;
+		const tmpLength = pAudioBuffer.length;
+		const tmpPerBucket = Math.max(1, Math.floor(tmpLength / tmpBuckets));
+
+		let tmpChannels = [];
+		for (let tmpChannel = 0; tmpChannel < tmpChannelCount; tmpChannel++) { tmpChannels.push(pAudioBuffer.getChannelData(tmpChannel)); }
+
+		let tmpPeaks = [];
+		let tmpMaxAmplitude = 0;
+		for (let tmpBucket = 0; tmpBucket < tmpBuckets; tmpBucket++)
+		{
+			let tmpStart = tmpBucket * tmpPerBucket;
+			if (tmpStart >= tmpLength) { break; }
+			let tmpEnd = Math.min(tmpLength, tmpStart + tmpPerBucket);
+			let tmpBucketMax = 0;
+			for (let tmpIndex = tmpStart; tmpIndex < tmpEnd; tmpIndex++)
+			{
+				let tmpSum = 0;
+				for (let tmpChannel = 0; tmpChannel < tmpChannelCount; tmpChannel++) { tmpSum += tmpChannels[tmpChannel][tmpIndex]; }
+				let tmpValue = Math.abs(tmpSum / tmpChannelCount);
+				if (tmpValue > tmpBucketMax) { tmpBucketMax = tmpValue; }
+			}
+			tmpPeaks.push(tmpBucketMax);
+			if (tmpBucketMax > tmpMaxAmplitude) { tmpMaxAmplitude = tmpBucketMax; }
+		}
+		// Normalize so quiet tracks still fill the canvas (a waveform conveys relative dynamics, not absolute level).
+		if (tmpMaxAmplitude > 0) { for (let tmpIndex = 0; tmpIndex < tmpPeaks.length; tmpIndex++) { tmpPeaks[tmpIndex] = tmpPeaks[tmpIndex] / tmpMaxAmplitude; } }
+		return tmpPeaks;
+	}
+
+	/**
 	 * Draw the precomputed peaks to the canvas: the whole waveform in a muted color, then the played portion (up to
 	 * the current time) in the accent color. A no-op when there are no peaks, no canvas, no 2d context (headless),
 	 * or the canvas has no measurable width.
@@ -476,6 +581,11 @@ class PictSectionAudio extends libPictViewClass
 	_renderWaveform()
 	{
 		if (!this._peaks || !this._peaks.length || !this._waveElement) { return; }
+
+		// Peaks are ready: reveal the canvas before measuring it (a display:none canvas reports zero width, which
+		// would abort the draw below). Hidden only until the first paint; a failed computation leaves it hidden.
+		try { if (this._waveElement.style && (this._waveElement.style.display === 'none')) { this._waveElement.style.display = ''; } }
+		catch (pError) { /* ignore */ }
 
 		let tmpContext = null;
 		try { tmpContext = (typeof this._waveElement.getContext === 'function') ? this._waveElement.getContext('2d') : null; }
@@ -576,6 +686,7 @@ class PictSectionAudio extends libPictViewClass
 		const tmpHadPeaks = !!(this._peaks && this._peaks.length);
 		const tmpHasPeaks = !!(tmpPeaks && tmpPeaks.length);
 		this._peaks = tmpPeaks;
+		this._peaksURL = null;   // a new track -> allow the client-side waveform to recompute for its URL
 
 		if (this.targetElement && (tmpHadPeaks !== tmpHasPeaks))
 		{

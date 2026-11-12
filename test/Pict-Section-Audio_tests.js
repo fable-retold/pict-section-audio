@@ -125,8 +125,15 @@ suite
 				});
 				test('renders a waveform canvas only when peaks are present', (fDone) =>
 				{
-					const tmpWithout = buildView();
+					// Opt out of client-side peaks: with none supplied and ComputePeaks:false there is no canvas.
+					const tmpWithout = buildView({ ComputePeaks: false });
 					Expect(document.getElementById(tmpWithout.viewHash + '-Wave')).to.equal(null);
+					// Default (ComputePeaks on) with no peaks yet: the canvas exists but starts hidden until computed.
+					const tmpPending = buildView();
+					const tmpPendingCanvas = document.getElementById(tmpPending.viewHash + '-Wave');
+					Expect(tmpPendingCanvas).to.not.equal(null);
+					Expect(tmpPendingCanvas.style.display).to.equal('none');
+					Expect(tmpPending.view.getState().HasWaveform).to.equal(false);
 					const tmpWith = buildView({ Peaks: [ 0.1, 0.5, 0.9, 0.3 ] });
 					Expect(document.getElementById(tmpWith.viewHash + '-Wave')).to.not.equal(null);
 					Expect(tmpWith.view.getState().HasWaveform).to.equal(true);
@@ -308,7 +315,7 @@ suite
 				});
 				test('setAudio toggling peaks on rebuilds with a waveform canvas', (fDone) =>
 				{
-					const tmpHarness = buildView();
+					const tmpHarness = buildView({ ComputePeaks: false });
 					Expect(document.getElementById(tmpHarness.viewHash + '-Wave')).to.equal(null);
 					tmpHarness.view.setAudio({ URL: 'https://host/track.mp3', Peaks: [ 0.3, 0.7, 0.2 ] });
 					Expect(document.getElementById(tmpHarness.viewHash + '-Wave')).to.not.equal(null);

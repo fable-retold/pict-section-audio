@@ -37,8 +37,17 @@ module.exports = (
 	// An optional secondary line under the title (artist, album, MIME/size, …).
 	"Subtitle": "",
 	// An optional precomputed waveform: an array of 0..1 amplitude samples. When present, a waveform is drawn and
-	// a click on it seeks. Absent ⇒ just the slider scrubber.
+	// a click on it seeks. Absent ⇒ computed client-side (ComputePeaks) or just the slider scrubber.
 	"Peaks": false,
+	// When no precomputed Peaks are supplied, decode the track in the browser (Web Audio) and draw a waveform from
+	// it. Best-effort: a fetch/HTTP failure, an oversized file, no AudioContext, or a codec the browser's decoder
+	// rejects all leave the slider-only chrome with no waveform (playback is never affected). Set false to opt out.
+	"ComputePeaks": true,
+	// How many amplitude bars to downsample a decoded track to for the client-side waveform.
+	"PeakBuckets": 400,
+	// Skip client-side peak computation for files larger than this (bytes) — decoding a huge track in the browser is
+	// slow and memory-heavy; those keep the slider-only chrome (or a host/rendition-service-supplied Peaks array).
+	"MaxPeaksBytes": 48000000,
 	// An explicit download href + filename hint. DownloadURL defaults to AudioURL.
 	"DownloadURL": false,
 	"DownloadName": "",
