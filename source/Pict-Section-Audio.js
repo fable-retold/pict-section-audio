@@ -525,11 +525,18 @@ class PictSectionAudio extends libPictViewClass
 			.then(function (pResult)
 			{
 				const tmpPeaks = tmpSelf._peaksFromBuffer(pResult.Buffer, tmpBuckets);
+				const tmpSpecs = (tmpSelf.options.ShowDecodedSpecs !== false) ? tmpSelf._formatAudioSpecs(pResult.Buffer) : '';
 				try { pResult.Context.close(); } catch (pError) { /* ignore */ }
-				if (tmpPeaks && tmpPeaks.length && (tmpSelf._peaksURL === pURL))   // still the current track?
+				if (tmpSelf._peaksURL !== pURL) { return; }   // the viewer moved on to another track
+				if (tmpPeaks && tmpPeaks.length)
 				{
 					tmpSelf._peaks = tmpPeaks;
 					tmpSelf._renderWaveform();   // reveals the canvas + paints
+				}
+				if (tmpSpecs)
+				{
+					tmpSelf._subtitle = tmpSpecs;   // real audio specs beat a MIME string in the header
+					tmpSelf._refreshHeader();
 				}
 			})
 			.catch(function (pError)
@@ -571,6 +578,24 @@ class PictSectionAudio extends libPictViewClass
 		// Normalize so quiet tracks still fill the canvas (a waveform conveys relative dynamics, not absolute level).
 		if (tmpMaxAmplitude > 0) { for (let tmpIndex = 0; tmpIndex < tmpPeaks.length; tmpIndex++) { tmpPeaks[tmpIndex] = tmpPeaks[tmpIndex] / tmpMaxAmplitude; } }
 		return tmpPeaks;
+	}
+
+	/** A compact spec line from a decoded buffer: "44.1 kHz · stereo · 3:04" (reuses the control-bar time format). */
+	_formatAudioSpecs(pAudioBuffer)
+	{
+		if (!pAudioBuffer) { return ''; }
+		let tmpParts = [];
+		if (pAudioBuffer.sampleRate)
+		{
+			let tmpKHz = pAudioBuffer.sampleRate / 1000;
+			tmpParts.push((Number.isInteger(tmpKHz) ? tmpKHz : Number(tmpKHz.toFixed(2))) + ' kHz');
+		}
+		let tmpChannels = pAudioBuffer.numberOfChannels || 0;
+		if (tmpChannels === 1) { tmpParts.push('mono'); }
+		else if (tmpChannels === 2) { tmpParts.push('stereo'); }
+		else if (tmpChannels > 0) { tmpParts.push(tmpChannels + ' channels'); }
+		if (pAudioBuffer.duration) { tmpParts.push(this._formatTime(pAudioBuffer.duration)); }
+		return tmpParts.join(' · ');
 	}
 
 	/**

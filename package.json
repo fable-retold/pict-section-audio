@@ -1,6 +1,6 @@
 {
     "name": "pict-section-audio",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "Pict audio player section — a bespoke audio player (titled header, optional peaks waveform, play/seek/time/volume/rate/download) that scrubs over native HTTP Range. Standalone, or driven as the audio renderer inside pict-section-fileview.",
     "main": "source/Pict-Section-Audio.js",
     "scripts": {

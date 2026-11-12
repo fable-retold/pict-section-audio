@@ -48,6 +48,9 @@ module.exports = (
 	// Skip client-side peak computation for files larger than this (bytes) — decoding a huge track in the browser is
 	// slow and memory-heavy; those keep the slider-only chrome (or a host/rendition-service-supplied Peaks array).
 	"MaxPeaksBytes": 48000000,
+	// When the client-side decode runs, replace the subtitle with the decoded specs (sample rate · channels ·
+	// duration), e.g. "44.1 kHz · stereo · 3:04". Set false to keep a host-supplied subtitle (artist/album) instead.
+	"ShowDecodedSpecs": true,
 	// An explicit download href + filename hint. DownloadURL defaults to AudioURL.
 	"DownloadURL": false,
 	"DownloadName": "",
