@@ -57,7 +57,10 @@ class PictSectionAudio extends libPictViewClass
 		this._peaks = Array.isArray(this.options.Peaks) ? this.options.Peaks.slice() : null;
 		this._computePeaks = (this.options.ComputePeaks !== false);   // decode client-side for a waveform when no Peaks supplied
 		this._peaksURL = null;                                        // the URL _peaks were last computed for (recompute on change)
-		this._downloadURL = this.options.DownloadURL || '';
+		// DownloadURL is tri-state (see _normalizeDownloadURL): null = no download affordance anywhere, a non-empty
+		// string = that href, '' = unset (fall back to the playing URL). Like a configured string, a configured null
+		// covers the configured AudioURL track only; each later setAudio() track follows its own descriptor.
+		this._downloadURL = this._normalizeDownloadURL(this.options.DownloadURL);
 		this._downloadName = this.options.DownloadName || '';
 
 		this._loaded = false;       // metadata (duration) available
@@ -346,9 +349,10 @@ class PictSectionAudio extends libPictViewClass
 	{
 		if (!this._rootElement) { return; }
 		let tmpDownload = '';
-		if (this._downloadURL || this._url)
+		const tmpDownloadHref = this._downloadHref();   // '' for an explicit null DownloadURL -> no link at all
+		if (tmpDownloadHref)
 		{
-			tmpDownload = '<a class="psa-btn" href="' + this._esc(this._downloadURL || this._url) + '" download'
+			tmpDownload = '<a class="psa-btn" href="' + this._esc(tmpDownloadHref) + '" download'
 				+ (this._downloadName ? ('="' + this._esc(this._downloadName) + '"') : '')
 				+ '>' + this._icon('Download') + ' Download</a>';
 		}
@@ -455,17 +459,46 @@ class PictSectionAudio extends libPictViewClass
 	_refreshDownload()
 	{
 		if (!this._downloadElement) { return; }
-		const tmpHref = this._downloadURL || this._url;
+		const tmpHref = this._downloadHref();
 		if (tmpHref)
 		{
 			this._downloadElement.setAttribute('href', tmpHref);
-			if (this._downloadName) { this._downloadElement.setAttribute('download', this._downloadName); }
+			// Always (re)set, so a filename hint from an earlier track never rides along on this one.
+			this._downloadElement.setAttribute('download', this._downloadName || '');
 			this._downloadElement.style.display = 'inline-flex';
 		}
 		else
 		{
+			// Hidden, and carrying no href or filename hint from a previous track.
+			this._downloadElement.setAttribute('href', '#');
+			this._downloadElement.setAttribute('download', '');
 			this._downloadElement.style.display = 'none';
 		}
+	}
+
+	/**
+	 * Normalize a DownloadURL value to the player's tri-state:
+	 *   - null               -> null: explicitly NO download (control bar and error-state link both suppressed)
+	 *   - a non-empty string -> that string: an explicit download href
+	 *   - another truthy non-boolean (a URL / String object) -> its string form, as an href attribute would take it
+	 *   - anything else      -> '' (unset): fall back to the playing URL ('', undefined, booleans incl. the config
+	 *                           default false)
+	 * @param {*} pValue
+	 * @returns {(string|null)}
+	 */
+	_normalizeDownloadURL(pValue)
+	{
+		if (pValue === null) { return null; }
+		if (typeof pValue === 'string') { return pValue; }
+		if (!pValue || (typeof pValue === 'boolean')) { return ''; }
+		return String(pValue);
+	}
+
+	/** The href every download affordance uses: '' when there is none (an explicit null, or nothing loaded). */
+	_downloadHref()
+	{
+		if (this._downloadURL === null) { return ''; }
+		return this._downloadURL || this._url || '';
 	}
 
 	_isElementFocused(pElement)
@@ -673,6 +706,10 @@ class PictSectionAudio extends libPictViewClass
 	/**
 	 * Point the player at an audio file. Accepts a URL string or a descriptor object
 	 * ({ URL, Title?, Name?, Subtitle?, PosterURL?, Peaks?, DownloadURL?, DownloadName? }). Resets playback.
+	 *
+	 * DownloadURL: null = no download affordance at all (control bar and error-state link); a non-empty string = that
+	 * href; absent / undefined / '' = the playing URL. It applies to this track only (a configured DownloadURL, null
+	 * or string, does not carry over to it).
 	 * @param {(string|Object)} pInput
 	 */
 	setAudio(pInput)
@@ -682,7 +719,7 @@ class PictSectionAudio extends libPictViewClass
 		let tmpSubtitle = this._subtitle;
 		let tmpPoster = '';
 		let tmpPeaks = null;
-		let tmpDownloadURL = '';
+		let tmpDownloadURL = '';   // tri-state, see _normalizeDownloadURL
 		let tmpDownloadName = '';
 
 		if (typeof pInput === 'string')
@@ -696,7 +733,7 @@ class PictSectionAudio extends libPictViewClass
 			tmpSubtitle = (typeof pInput.Subtitle === 'string') ? pInput.Subtitle : this._subtitle;
 			tmpPoster = pInput.PosterURL || pInput.Poster || '';
 			tmpPeaks = Array.isArray(pInput.Peaks) ? pInput.Peaks.slice() : null;
-			tmpDownloadURL = pInput.DownloadURL || '';
+			tmpDownloadURL = this._normalizeDownloadURL(pInput.DownloadURL);
 			tmpDownloadName = pInput.DownloadName || pInput.Name || '';
 		}
 
@@ -704,7 +741,7 @@ class PictSectionAudio extends libPictViewClass
 		this._title = tmpTitle || '';
 		this._subtitle = tmpSubtitle || '';
 		this._posterURL = tmpPoster || '';
-		this._downloadURL = tmpDownloadURL || tmpURL;
+		this._downloadURL = tmpDownloadURL;   // '' resolves to the playing URL at paint time (_downloadHref)
 		this._downloadName = tmpDownloadName || '';
 
 		// A change in whether peaks are present changes the DOM shape (canvas or not), so rebuild on a mismatch.

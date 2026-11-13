@@ -51,7 +51,12 @@ module.exports = (
 	// When the client-side decode runs, replace the subtitle with the decoded specs (sample rate · channels ·
 	// duration), e.g. "44.1 kHz · stereo · 3:04". Set false to keep a host-supplied subtitle (artist/album) instead.
 	"ShowDecodedSpecs": true,
-	// An explicit download href + filename hint. DownloadURL defaults to AudioURL.
+	// An explicit download href + filename hint. DownloadURL is tri-state:
+	//   false / '' (unset) -> the download falls back to the playing URL (the default);
+	//   a non-empty string -> that href;
+	//   null               -> NO download affordance anywhere (control bar and the error-state link).
+	// Like PosterURL / Peaks / DownloadName, it covers the configured AudioURL track only; each setAudio() track
+	// follows its own descriptor's DownloadURL.
 	"DownloadURL": false,
 	"DownloadName": "",
 

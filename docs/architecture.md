@@ -88,6 +88,25 @@ color, then redraws the played portion (up to the current time) in the accent co
 no peaks, no 2D context (headless), or the canvas has no measurable width, so it never throws. The colors are read
 from `pict-provider-theme` tokens when present, with hand-picked fallbacks otherwise.
 
+## Download and the error state
+
+Two places offer the file: the control-bar download link (when `ShowDownload` is on) and the "Download" link the
+error state paints when the `<audio>` fails. Both read one href from `_downloadHref()`, so they always agree.
+`DownloadURL` is held in three states (`_normalizeDownloadURL`):
+
+```mermaid
+flowchart LR
+    D[DownloadURL] -->|null| N[no href: the control-bar link is hidden and reset, the error state has no link]
+    D -->|"non-empty string (or a URL object, as its string)"| S[that string]
+    D -->|"absent / undefined / '' / false"| U[the playing URL]
+```
+
+Each value covers one track. The config's `DownloadURL` covers the configured `AudioURL` track, and `setAudio()`
+replaces it with the descriptor's (normalized, so `''` or a missing key means the playing URL), whether the earlier
+value was `null` or a string. A truthy non-string such as a `URL` object is kept as its string form. In every case
+the `<audio>` element still loads the playing URL; suppressing the download is a presentation choice, not access
+control.
+
 ## Event wiring, loading, and teardown
 
 The control-bar buttons, the seek/volume `<input>`s, the waveform canvas, and the `<audio>` media events all use

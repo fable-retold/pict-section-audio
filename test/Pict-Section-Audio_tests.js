@@ -64,6 +64,24 @@ function simulateTimeUpdate(pView, pCurrentTime)
 	if (typeof pView._audioElement.ontimeupdate === 'function') { pView._audioElement.ontimeupdate(); }
 }
 
+/** The control-bar download link: { Visible, Href, Name } (Href is the raw attribute). */
+function controlBarDownload(pHarness)
+{
+	const tmpLink = document.getElementById(pHarness.viewHash + '-Download');
+	Expect(tmpLink).to.not.equal(null);
+	return { Visible: (tmpLink.style.display !== 'none'), Href: tmpLink.getAttribute('href'), Name: tmpLink.getAttribute('download') };
+}
+
+/** Fire a media error and return the error state's download link (or null when the error state offers none). */
+function errorStateDownload(pHarness)
+{
+	pHarness.view._audioElement.onerror();
+	Expect(pHarness.view.getState().Error).to.equal(true);
+	const tmpRoot = document.getElementById(pHarness.viewHash + '-Root');
+	Expect(tmpRoot.querySelector('.psa-error')).to.not.equal(null);
+	return tmpRoot.querySelector('.psa-error a');
+}
+
 suite
 (
 	'PictSectionAudio',
@@ -340,6 +358,199 @@ suite
 					tmpB.view.setAudio('https://host/b.mp3');
 					Expect(tmpA.view._audioElement.getAttribute('src')).to.equal('https://host/a.mp3');
 					Expect(tmpB.view._audioElement.getAttribute('src')).to.equal('https://host/b.mp3');
+					return fDone();
+				});
+			}
+		);
+
+		suite
+		(
+			'DownloadURL (absent falls back, a string is used, null suppresses)',
+			() =>
+			{
+				// ---- absent / undefined / '' -> the playing URL (today's behaviour) ----
+				test('absent (string setAudio): the control bar and the error state link the playing URL', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio('https://host/song.mp3');
+					const tmpBar = controlBarDownload(tmpHarness);
+					Expect(tmpBar.Visible).to.equal(true);
+					Expect(tmpBar.Href).to.equal('https://host/song.mp3');
+					const tmpLink = errorStateDownload(tmpHarness);
+					Expect(tmpLink).to.not.equal(null);
+					Expect(tmpLink.getAttribute('href')).to.equal('https://host/song.mp3');
+					return fDone();
+				});
+				test('absent / undefined / empty string on a descriptor all fall back to the playing URL', (fDone) =>
+				{
+					const tmpAbsent = buildView();
+					tmpAbsent.view.setAudio({ URL: 'https://host/absent.mp3' });
+					Expect(controlBarDownload(tmpAbsent).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpAbsent).Href).to.equal('https://host/absent.mp3');
+
+					const tmpUndefined = buildView();
+					tmpUndefined.view.setAudio({ URL: 'https://host/undefined.mp3', DownloadURL: undefined });
+					Expect(controlBarDownload(tmpUndefined).Href).to.equal('https://host/undefined.mp3');
+
+					const tmpEmpty = buildView();
+					tmpEmpty.view.setAudio({ URL: 'https://host/empty.mp3', DownloadURL: '' });
+					Expect(controlBarDownload(tmpEmpty).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpEmpty).Href).to.equal('https://host/empty.mp3');
+					const tmpLink = errorStateDownload(tmpEmpty);
+					Expect(tmpLink).to.not.equal(null);
+					Expect(tmpLink.getAttribute('href')).to.equal('https://host/empty.mp3');
+					return fDone();
+				});
+				test('the default config (DownloadURL false) with a configured AudioURL falls back to it', (fDone) =>
+				{
+					Expect(libPictSectionAudio.default_configuration.DownloadURL).to.equal(false);
+					const tmpHarness = buildView({ AudioURL: 'https://host/seed.mp3' });
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/seed.mp3');
+					return fDone();
+				});
+
+				// ---- a non-empty string -> used ----
+				test('a DownloadURL string on a descriptor is used by the control bar and the error state', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/stream.m4a', DownloadURL: 'https://host/original.wav', DownloadName: 'original.wav' });
+					const tmpBar = controlBarDownload(tmpHarness);
+					Expect(tmpBar.Visible).to.equal(true);
+					Expect(tmpBar.Href).to.equal('https://host/original.wav');
+					Expect(tmpBar.Name).to.equal('original.wav');
+					const tmpLink = errorStateDownload(tmpHarness);
+					Expect(tmpLink).to.not.equal(null);
+					Expect(tmpLink.getAttribute('href')).to.equal('https://host/original.wav');
+					Expect(tmpLink.getAttribute('download')).to.equal('original.wav');
+					return fDone();
+				});
+				test('a DownloadURL string in config is used for the configured track', (fDone) =>
+				{
+					const tmpHarness = buildView({ AudioURL: 'https://host/seed.m4a', DownloadURL: 'https://host/seed-original.flac' });
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/seed-original.flac');
+					const tmpLink = errorStateDownload(tmpHarness);
+					Expect(tmpLink.getAttribute('href')).to.equal('https://host/seed-original.flac');
+					return fDone();
+				});
+
+				// ---- null -> no download affordance anywhere ----
+				test('an explicit null on a descriptor hides the control-bar download and drops the error-state link', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/private.m4a', DownloadURL: null, Name: 'private.m4a' });
+					// Playback is unaffected.
+					Expect(tmpHarness.view._audioElement.getAttribute('src')).to.equal('https://host/private.m4a');
+					const tmpBar = controlBarDownload(tmpHarness);
+					Expect(tmpBar.Visible).to.equal(false);
+					Expect(tmpBar.Href).to.equal('#');
+					Expect(tmpBar.Name).to.equal('');
+					Expect(errorStateDownload(tmpHarness)).to.equal(null);
+					const tmpRoot = document.getElementById(tmpHarness.viewHash + '-Root');
+					Expect(tmpRoot.innerHTML).to.not.contain('https://host/private.m4a');
+					return fDone();
+				});
+				test('a null descriptor after a downloadable track clears the stale href and filename', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/open.mp3', DownloadName: 'open.mp3' });
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Name).to.equal('open.mp3');
+					tmpHarness.view.setAudio({ URL: 'https://host/private.m4a', DownloadURL: null });
+					const tmpBar = controlBarDownload(tmpHarness);
+					Expect(tmpBar.Visible).to.equal(false);
+					Expect(tmpBar.Href).to.equal('#');
+					Expect(tmpBar.Name).to.equal('');
+					return fDone();
+				});
+				test('a per-track null does not stick: the next track without one downloads again', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/private.m4a', DownloadURL: null });
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(false);
+					tmpHarness.view.setAudio('https://host/next.mp3');
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/next.mp3');
+					return fDone();
+				});
+				test('a null DownloadURL in config suppresses the configured track (control bar + error state)', (fDone) =>
+				{
+					const tmpHarness = buildView({ AudioURL: 'https://host/seed-private.m4a', DownloadURL: null });
+					Expect(tmpHarness.view._audioElement.getAttribute('src')).to.equal('https://host/seed-private.m4a');
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(false);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('#');
+					Expect(errorStateDownload(tmpHarness)).to.equal(null);
+					return fDone();
+				});
+				test('a config DownloadURL covers only the configured track: later tracks follow their own descriptor', (fDone) =>
+				{
+					// A config string: dropped by the next setAudio (today's behaviour).
+					const tmpString = buildView({ AudioURL: 'https://host/seed.m4a', DownloadURL: 'https://host/seed-original.flac' });
+					tmpString.view.setAudio('https://host/next.mp3');
+					Expect(controlBarDownload(tmpString).Href).to.equal('https://host/next.mp3');
+
+					// A config null behaves the same way: absent / '' on a later track fall back to its playing URL.
+					const tmpNull = buildView({ AudioURL: 'https://host/seed-private.m4a', DownloadURL: null });
+					Expect(controlBarDownload(tmpNull).Visible).to.equal(false);
+					tmpNull.view.setAudio('https://host/a.m4a');
+					Expect(controlBarDownload(tmpNull).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpNull).Href).to.equal('https://host/a.m4a');
+					tmpNull.view.setAudio({ URL: 'https://host/b.m4a', DownloadURL: null });
+					Expect(controlBarDownload(tmpNull).Visible).to.equal(false);
+					tmpNull.view.setAudio({ URL: 'https://host/c.m4a', DownloadURL: '' });
+					Expect(controlBarDownload(tmpNull).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpNull).Href).to.equal('https://host/c.m4a');
+					const tmpLink = errorStateDownload(tmpNull);
+					Expect(tmpLink).to.not.equal(null);
+					Expect(tmpLink.getAttribute('href')).to.equal('https://host/c.m4a');
+					return fDone();
+				});
+				test('a non-string DownloadURL (a URL object) is stringified and used, not replaced by the playing URL', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/stream.m4a', DownloadURL: new URL('https://host/original.wav') });
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/original.wav');
+					const tmpLink = errorStateDownload(tmpHarness);
+					Expect(tmpLink).to.not.equal(null);
+					Expect(tmpLink.getAttribute('href')).to.equal('https://host/original.wav');
+
+					const tmpBoxed = buildView();
+					tmpBoxed.view.setAudio({ URL: 'https://host/stream.m4a', DownloadURL: new String('https://host/boxed.wav') });   // eslint-disable-line no-new-wrappers
+					Expect(controlBarDownload(tmpBoxed).Href).to.equal('https://host/boxed.wav');
+
+					// A boolean is not an href: true / false are unset and fall back to the playing URL.
+					const tmpBoolean = buildView();
+					tmpBoolean.view.setAudio({ URL: 'https://host/stream.m4a', DownloadURL: true });
+					Expect(controlBarDownload(tmpBoolean).Href).to.equal('https://host/stream.m4a');
+					return fDone();
+				});
+				test('a filename hint from an earlier track does not leak onto the next downloadable track', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/a.mp3', DownloadName: 'a-name.mp3' });
+					Expect(controlBarDownload(tmpHarness).Name).to.equal('a-name.mp3');
+					tmpHarness.view.setAudio('https://host/b.mp3');
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/b.mp3');
+					Expect(controlBarDownload(tmpHarness).Name).to.equal('');
+					tmpHarness.view.setAudio({ URL: 'https://host/c.m4a', DownloadURL: 'https://host/c-original.wav' });
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/c-original.wav');
+					Expect(controlBarDownload(tmpHarness).Name).to.equal('');
+					return fDone();
+				});
+				test('recovering from a null-suppressed error state rebuilds a hidden control-bar download', (fDone) =>
+				{
+					const tmpHarness = buildView();
+					tmpHarness.view.setAudio({ URL: 'https://host/missing.m4a', DownloadURL: null });
+					Expect(errorStateDownload(tmpHarness)).to.equal(null);
+					tmpHarness.view.setAudio({ URL: 'https://host/also-private.m4a', DownloadURL: null });
+					Expect(tmpHarness.view._audioElement).to.not.equal(null);
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(false);
+					tmpHarness.view.setAudio('https://host/open.mp3');
+					Expect(controlBarDownload(tmpHarness).Visible).to.equal(true);
+					Expect(controlBarDownload(tmpHarness).Href).to.equal('https://host/open.mp3');
 					return fDone();
 				});
 			}
